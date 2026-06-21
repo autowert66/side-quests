@@ -75,11 +75,20 @@ function toggleTag(tag: string) {
 
 <template>
   <UContainer class="py-8">
-    <div class="mb-8">
-      <h1 class="text-3xl font-bold tracking-tight mb-1">Tools</h1>
-      <p class="text-(--ui-text-muted)">
-        Search and browse all available tools.
-      </p>
+    <div class="mb-8 flex items-start justify-between">
+      <div>
+        <h1 class="text-3xl font-bold tracking-tight mb-1">Tools</h1>
+        <p class="text-(--ui-text-muted)">
+          Search and browse all available tools.
+        </p>
+      </div>
+      <UButton
+        icon="i-lucide-plus"
+        color="primary"
+        variant="outline"
+        to="/add"
+        aria-label="Add new tool"
+      />
     </div>
 
     <div class="mb-8 space-y-4">

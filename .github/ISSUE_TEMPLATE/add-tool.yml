@@ -1,0 +1,36 @@
+name: Add Tool
+description: Add a new tool to the Side Quests site
+title: "Add Tool: "
+labels: ["add-tool"]
+body:
+  - type: input
+    id: page_slug
+    attributes:
+      label: Page Slug
+      description: URL-friendly filename in kebab-case (e.g. "my-new-tool")
+      placeholder: my-new-tool
+    validations:
+      required: true
+  - type: textarea
+    id: page_code
+    attributes:
+      label: Page Code
+      description: Full Vue SFC code. Must include `<script setup>` with `definePageMeta()`.
+      render: vue
+      placeholder: |
+        <script setup lang="ts">
+        definePageMeta({
+          title: 'My New Tool',
+          description: 'Does something useful.',
+          category: 'developer-tools',
+          tags: ['code', 'data'],
+        })
+        </script>
+
+        <template>
+          <ClientOnly>
+            <div>...</div>
+          </ClientOnly>
+        </template>
+    validations:
+      required: true
