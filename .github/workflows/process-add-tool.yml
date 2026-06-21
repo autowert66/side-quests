@@ -102,6 +102,8 @@ jobs:
             })
 
       - name: Trigger deploy
-        run: gh workflow run deploy.yml --ref main
+        run: |
+          sleep 15
+          gh workflow run deploy.yml --ref main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
