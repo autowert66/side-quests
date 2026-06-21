@@ -30,6 +30,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
 
@@ -99,3 +100,8 @@ jobs:
               issue_number: context.issue.number,
               state: 'closed',
             })
+
+      - name: Trigger deploy
+        run: gh workflow run deploy.yml --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
