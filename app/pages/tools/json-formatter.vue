@@ -1,7 +1,7 @@
 <script setup lang="ts">
 definePageMeta({
   title: 'JSON Formatter',
-  description: 'Format and validate messy JSON strings.',
+  description: 'Format, validate, and minify messy JSON strings.',
   category: 'developer-tools',
   tags: ['code', 'data'],
 })
@@ -33,40 +33,57 @@ function minify() {
 
 <template>
   <ClientOnly>
-    <UContainer class="py-8">
-      <h1 class="text-2xl font-bold tracking-tight mb-1">JSON Formatter</h1>
-      <p class="text-(--ui-text-muted) mb-6">Format, validate, and minify JSON.</p>
+    <UContainer class="py-8 max-w-7xl">
+      <div class="mb-6">
+        <h1 class="text-3xl font-bold tracking-tight mb-2">JSON Formatter</h1>
+        <p class="text-(--ui-text-muted)">Format, validate, and minify JSON.</p>
+      </div>
 
-      <UForm @submit.prevent="format" class="space-y-4">
-        <UFormField label="Input">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <UCard>
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h2 class="font-semibold">Input</h2>
+              <div class="flex gap-2">
+                <UButton @click="format" icon="i-lucide-indent" color="primary" size="sm">
+                  Format
+                </UButton>
+                <UButton @click="minify" icon="i-lucide-shrink" variant="outline" color="neutral" size="sm">
+                  Minify
+                </UButton>
+              </div>
+            </div>
+          </template>
           <UTextarea
             v-model="input"
+            class="font-mono text-sm w-full"
             placeholder='{"hello": "world"}'
-            :rows="10"
+            :rows="16"
           />
-        </UFormField>
+        </UCard>
 
-        <div class="flex gap-2">
-          <UButton type="submit" icon="i-lucide-indent" color="primary">
-            Format
-          </UButton>
-          <UButton @click="minify" icon="i-lucide-shrink" variant="outline">
-            Minify
-          </UButton>
+        <div class="flex flex-col gap-4">
+          <UAlert
+            v-if="error"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-alert-circle"
+            :title="error"
+          />
+          <UCard class="flex-1">
+            <template #header>
+              <h2 class="font-semibold">Output</h2>
+            </template>
+            <UTextarea
+              :model-value="output"
+              readonly
+              class="font-mono text-sm w-full"
+              placeholder="Result will appear here..."
+              :rows="16"
+            />
+          </UCard>
         </div>
-
-        <UFormField v-if="error" label="Error">
-          <UAlert color="error" variant="subtle" :title="error" />
-        </UFormField>
-
-        <UFormField v-if="output" label="Output">
-          <UTextarea
-            :model-value="output"
-            readonly
-            :rows="10"
-          />
-        </UFormField>
-      </UForm>
+      </div>
     </UContainer>
   </ClientOnly>
 </template>

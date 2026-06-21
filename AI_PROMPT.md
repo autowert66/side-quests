@@ -66,8 +66,9 @@ Use Tailwind utilities strictly for layout and text. These categories are safe:
 - **Layout**: `flex`, `grid`, `gap-*`, `items-center`, `justify-between`, `flex-col`, `flex-wrap`, `grid-cols-*`
 - **Spacing**: `p-*`, `m-*`, `py-*`, `px-*`, `space-y-*`, `space-x-*`
 - **Sizing**: `w-full`, `h-full`, `size-*`, `min-h-*`, `max-w-*`
-- **Typography**: `text-sm`, `text-lg`, `font-bold`, `text-center`, `tabular-nums`, `tracking-tight`, `truncate`, `line-clamp-*`
+- **Typography**: `text-sm`, `text-lg`, `text-xl`, `text-2xl`, `text-3xl`, `font-semibold`, `font-bold`, `font-mono`, `text-center`, `tabular-nums`, `tracking-tight`, `truncate`, `line-clamp-*`
 - **Nuxt UI CSS variables**: `text-(--ui-text-muted)`, `bg-(--ui-bg)`, `bg-(--ui-bg-elevated)`, `border-(--ui-border)`
+- **Responsive prefixes**: `sm:`, `md:`, `lg:`, `xl:` are allowed on any layout/spacing/sizing class (e.g., `lg:grid-cols-2`, `md:flex-row`)
 
 **Forbidden Tailwind classes** (the theme owns these):
 
@@ -76,6 +77,28 @@ Use Tailwind utilities strictly for layout and text. These categories are safe:
 - **Dark mode**: `dark:` prefix (Nuxt UI handles dark mode automatically)
 
 Build the entire user interface using **only Nuxt UI v4 components**. Raw HTML elements (`<div>`, `<span>`, `<p>`, `<h1>`-`<h6>`) are allowed only for structural layout and text content. All interactive elements (buttons, inputs, selects, toggles, cards, badges, etc.) **must** use Nuxt UI components.
+
+---
+
+## Layout & UX Guidelines (CRITICAL)
+
+Good tools look well-designed. You are responsible for layout decisions, not just functionality.
+
+1. **Cards for Containment:** Wrap logical sections (input areas, output areas, controls) in `<UCard>` to give them visual boundaries. Do not float UI on the page background.
+
+2. **Responsive Grids for I/O:** If a tool has an Input and an Output (encoders, formatters, converters), use a responsive split layout:
+   - Mobile: Stacked vertically (`grid-cols-1`)
+   - Desktop: Side-by-side (`lg:grid-cols-2`) with a comfortable gap (`gap-6`)
+
+3. **Monospace for Code:** If the tool handles code, JSON, Base64, hex, or any syntax, add `font-mono` and `text-sm` to the `<UTextarea>` or `<UInput>`.
+
+4. **Generous Sizing:** Primary input textareas should be tall enough to be useful. Use `:rows="12"` to `:rows="20"`. Always add `w-full` to make them fill available width.
+
+5. **Header + Actions in Cards:** Place action buttons inside the card's `#header` slot alongside the title (using `flex items-center justify-between`) rather than below the content. This saves vertical space and looks intentional.
+
+6. **Empty States:** Every input must have a `placeholder` attribute showing example input.
+
+7. **Error Display:** Use `<UAlert color="error" variant="subtle" icon="i-lucide-alert-circle">` for error messages. Do not use raw `<p>` or `<span>` for errors.
 
 ---
 
@@ -183,50 +206,94 @@ If a feature requires an npm package you cannot use, find an alternative using t
 
 ## Complete Example
 
-Here is a minimal, fully compliant tool:
+Here is a fully compliant, well-designed tool:
 
 ```vue
 <script setup lang="ts">
 definePageMeta({
-  title: 'Character Counter',
-  description: 'Count characters, words, and lines in any text.',
-  category: 'content-tools',
-  tags: ['text'],
+  title: 'JSON Formatter',
+  description: 'Format, validate, and minify messy JSON strings.',
+  category: 'developer-tools',
+  tags: ['code', 'data'],
 })
 
 const input = ref('')
+const output = ref('')
+const error = ref('')
 
-const stats = computed(() => ({
-  characters: input.value.length,
-  words: input.value.trim() ? input.value.trim().split(/\s+/).length : 0,
-  lines: input.value ? input.value.split('\n').length : 0,
-}))
+function format() {
+  try {
+    output.value = JSON.stringify(JSON.parse(input.value), null, 2)
+    error.value = ''
+  } catch (e) {
+    output.value = ''
+    error.value = (e as Error).message
+  }
+}
+
+function minify() {
+  try {
+    output.value = JSON.stringify(JSON.parse(input.value))
+    error.value = ''
+  } catch (e) {
+    output.value = ''
+    error.value = (e as Error).message
+  }
+}
 </script>
 
 <template>
   <ClientOnly>
-    <UContainer class="py-8">
-      <UTextarea
-        v-model="input"
-        placeholder="Type or paste your text here..."
-        :rows="10"
-      />
+    <UContainer class="py-8 max-w-7xl">
+      <div class="mb-6">
+        <h1 class="text-3xl font-bold tracking-tight mb-2">JSON Formatter</h1>
+        <p class="text-(--ui-text-muted)">Format, validate, and minify JSON.</p>
+      </div>
 
-      <USeparator class="my-6" />
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <UCard>
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h2 class="font-semibold">Input</h2>
+              <div class="flex gap-2">
+                <UButton @click="format" icon="i-lucide-indent" color="primary" size="sm">
+                  Format
+                </UButton>
+                <UButton @click="minify" icon="i-lucide-shrink" variant="outline" color="neutral" size="sm">
+                  Minify
+                </UButton>
+              </div>
+            </div>
+          </template>
+          <UTextarea
+            v-model="input"
+            class="font-mono text-sm w-full"
+            placeholder='{"hello": "world"}'
+            :rows="16"
+          />
+        </UCard>
 
-      <div class="grid grid-cols-3 gap-4">
-        <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Characters</p>
-          <p class="text-2xl font-bold tabular-nums">{{ stats.characters }}</p>
-        </UCard>
-        <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Words</p>
-          <p class="text-2xl font-bold tabular-nums">{{ stats.words }}</p>
-        </UCard>
-        <UCard>
-          <p class="text-sm text-(--ui-text-muted)">Lines</p>
-          <p class="text-2xl font-bold tabular-nums">{{ stats.lines }}</p>
-        </UCard>
+        <div class="flex flex-col gap-4">
+          <UAlert
+            v-if="error"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-alert-circle"
+            :title="error"
+          />
+          <UCard class="flex-1">
+            <template #header>
+              <h2 class="font-semibold">Output</h2>
+            </template>
+            <UTextarea
+              :model-value="output"
+              readonly
+              class="font-mono text-sm w-full"
+              placeholder="Result will appear here..."
+              :rows="16"
+            />
+          </UCard>
+        </div>
       </div>
     </UContainer>
   </ClientOnly>
@@ -242,6 +309,11 @@ const stats = computed(() => ({
 - [ ] `definePageMeta({ title, description, category, tags })` is present and complete
 - [ ] No `<style>` block
 - [ ] Tailwind used only for layout/spacing/typography (no colors, borders, shadows, radii)
+- [ ] I/O tools use responsive split grid (`grid-cols-1 lg:grid-cols-2`)
+- [ ] Logical sections wrapped in `<UCard>` for visual boundaries
+- [ ] Code/data inputs use `font-mono` and `text-sm` on `<UTextarea>`
+- [ ] Every input has a `placeholder` with example content
+- [ ] Errors shown via `<UAlert>` with `icon`, not raw text
 - [ ] No `import` statements
 - [ ] All interactive elements use Nuxt UI components
 - [ ] Browser APIs are inside `<ClientOnly>`
