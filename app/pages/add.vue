@@ -18,12 +18,20 @@ const normalized = computed(() => {
 
 const valid = computed(() => normalized.value.length > 0)
 
+const buttonLabel = computed(() =>
+  valid.value && code.value ? 'Open Issue on GitHub' : 'Fill out on GitHub',
+)
+
 function openIssue() {
   const params = new URLSearchParams()
   params.set('template', 'add-tool.yml')
-  params.set('title', `Add Tool: ${normalized.value}`)
-  params.set('page_slug', normalized.value)
-  params.set('page_code', code.value)
+  if (valid.value) {
+    params.set('title', `Add Tool: ${normalized.value}`)
+    params.set('page_slug', normalized.value)
+  }
+  if (code.value) {
+    params.set('page_code', code.value)
+  }
 
   const url = `https://github.com/autowert66/side-quests/issues/new?${params.toString()}`
   window.open(url, '_blank')
@@ -42,8 +50,8 @@ onMounted(() => {
       filename.value = slug
     }
     if (codeB64) {
-      const normalized = codeB64.replace(/-/g, '+').replace(/_/g, '/')
-      code.value = atob(normalized)
+      const normalizedB64 = codeB64.replace(/-/g, '+').replace(/_/g, '/')
+      code.value = atob(normalizedB64)
     }
   } catch {
     // ignore malformed hash
@@ -63,21 +71,19 @@ onMounted(() => {
       </div>
 
       <div class="space-y-6">
-        <div class="space-y-2">
-          <label class="text-sm font-medium">Filename</label>
+        <UFormField
+          label="Filename"
+          :help="`Resulting file: ${normalized || '...'}.vue`"
+        >
           <UInput
             v-model="filename"
             placeholder="my-new-tool"
             size="lg"
+            class="w-full max-w-md"
           />
-          <p class="text-xs text-(--ui-text-muted)">
-            Resulting file:
-            <code class="bg-(--ui-bg-elevated) px-1 py-0.5 rounded">{{ normalized || '...' }}.vue</code>
-          </p>
-        </div>
+        </UFormField>
 
-        <div class="space-y-2">
-          <label class="text-sm font-medium">Vue Component Code</label>
+        <UFormField label="Vue Component Code">
           <UTextarea
             v-model="code"
             placeholder="<script setup lang=&#34;ts&#34;&gt;
@@ -95,15 +101,16 @@ definePageMeta({
   &lt;/ClientOnly&gt;
 &lt;/template&gt;"
             :rows="16"
-            class="font-mono text-sm"
+            autoresize
+            class="w-full font-mono text-sm"
           />
-        </div>
+        </UFormField>
 
         <UButton
-          :disabled="!valid || !code"
-          label="Open Issue on GitHub"
+          :label="buttonLabel"
           icon="i-lucide-external-link"
-          color="primary"
+          :color="valid && code ? 'primary' : 'neutral'"
+          :variant="valid && code ? 'solid' : 'outline'"
           size="lg"
           block
           @click="openIssue"
