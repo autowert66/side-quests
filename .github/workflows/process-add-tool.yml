@@ -7,7 +7,7 @@ jobs:
   reject:
     if: |
       github.event.issue.user.login != 'autowert66' &&
-      contains(github.event.issue.labels.*.name, 'add-tool')
+      (contains(github.event.issue.labels.*.name, 'add-tool') || startsWith(github.event.issue.title, 'Add Tool:'))
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -25,7 +25,7 @@ jobs:
   add-tool:
     if: |
       github.event.issue.user.login == 'autowert66' &&
-      contains(github.event.issue.labels.*.name, 'add-tool')
+      (contains(github.event.issue.labels.*.name, 'add-tool') || startsWith(github.event.issue.title, 'Add Tool:'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
