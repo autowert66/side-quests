@@ -56,7 +56,7 @@ const filteredTools = computed(() => {
 
   if (selectedTags.value.length > 0) {
     result = result.filter((t) =>
-      selectedTags.value.some((tag) => t.tags.includes(tag)),
+      selectedTags.value.every((tag) => t.tags.includes(tag)),
     )
   }
 

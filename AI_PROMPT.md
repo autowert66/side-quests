@@ -55,10 +55,25 @@ If none fit, propose a **new** lowercase-kebab-case category.
 
 - **NO `<style>` blocks.**
 - **NO inline `style` attributes.**
-- **NO Tailwind CSS utility classes.**
-- **NO custom CSS of any kind.**
+- **NO decorative Tailwind classes** that set colors, borders, shadows, or radii.
 
-The global design system (colors, spacing, typography, dark/light mode) is managed entirely by the Nuxt UI theme. You do not style anything yourself.
+The global design system (colors, border radii, shadows, dark/light mode) is managed entirely by the Nuxt UI theme. Rely on Nuxt UI components like `<UCard>`, `<UBadge>`, and `<UAlert>` to express visual design.
+
+**Allowed Tailwind classes** (structural only):
+
+Use Tailwind utilities strictly for layout and text. These categories are safe:
+
+- **Layout**: `flex`, `grid`, `gap-*`, `items-center`, `justify-between`, `flex-col`, `flex-wrap`, `grid-cols-*`
+- **Spacing**: `p-*`, `m-*`, `py-*`, `px-*`, `space-y-*`, `space-x-*`
+- **Sizing**: `w-full`, `h-full`, `size-*`, `min-h-*`, `max-w-*`
+- **Typography**: `text-sm`, `text-lg`, `font-bold`, `text-center`, `tabular-nums`, `tracking-tight`, `truncate`, `line-clamp-*`
+- **Nuxt UI CSS variables**: `text-(--ui-text-muted)`, `bg-(--ui-bg)`, `bg-(--ui-bg-elevated)`, `border-(--ui-border)`
+
+**Forbidden Tailwind classes** (the theme owns these):
+
+- **Colors**: `bg-white`, `text-blue-500`, `border-gray-200`, etc.
+- **Decorative**: `rounded-*`, `shadow-*`, `ring-*`, gradient utilities
+- **Dark mode**: `dark:` prefix (Nuxt UI handles dark mode automatically)
 
 Build the entire user interface using **only Nuxt UI v4 components**. Raw HTML elements (`<div>`, `<span>`, `<p>`, `<h1>`-`<h6>`) are allowed only for structural layout and text content. All interactive elements (buttons, inputs, selects, toggles, cards, badges, etc.) **must** use Nuxt UI components.
 
@@ -226,7 +241,7 @@ const stats = computed(() => ({
 - [ ] `<script setup lang="ts">` is the first block
 - [ ] `definePageMeta({ title, description, category, tags })` is present and complete
 - [ ] No `<style>` block
-- [ ] No Tailwind classes or inline styles
+- [ ] Tailwind used only for layout/spacing/typography (no colors, borders, shadows, radii)
 - [ ] No `import` statements
 - [ ] All interactive elements use Nuxt UI components
 - [ ] Browser APIs are inside `<ClientOnly>`

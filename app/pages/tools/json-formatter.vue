@@ -47,7 +47,7 @@ function minify() {
         </UFormField>
 
         <div class="flex gap-2">
-          <UButton type="submit" @click="format" icon="i-lucide-indent" color="primary">
+          <UButton type="submit" icon="i-lucide-indent" color="primary">
             Format
           </UButton>
           <UButton @click="minify" icon="i-lucide-shrink" variant="outline">
