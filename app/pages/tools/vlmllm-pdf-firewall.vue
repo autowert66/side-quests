@@ -1,34 +1,49 @@
 <script setup lang="ts">
 definePageMeta({
   title: 'Zero-Trust PDF Firewall',
-  description: 'Client-side heuristic engine to detect malicious PDF structures, invisible text, and prompt injections.[cite: 1]',
+  description: 'Client-side Rasterization, OCR, and Heuristic Diffing Engine.',
   category: 'security',
   tags: ['file', 'security', 'data'],
 })
 
+// Inject required external scripts dynamically since standard imports are forbidden.
+useHead({
+  script: [
+    { src: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js', defer: true },
+    { src: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.5/dist/tesseract.min.js', defer: true },
+    { src: 'https://cdnjs.cloudflare.com/ajax/libs/diff_match_patch/20121119/diff_match_patch.js', defer: true }
+  ]
+})
+
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const viewerContainerRef = ref<HTMLElement | null>(null)
+
 const isScanning = ref(false)
 const progress = ref(0)
+const progressTitle = ref('')
 const progressText = ref('')
 const riskScore = ref(0)
+
 const logs = ref<{ message: string; severity: 'high' | 'medium' | 'low' | 'info'; snippet?: string }[]>([])
-const rawExtractedText = ref('')
+const diffResults = ref<[number, string][]>([])
 
 const stats = ref({
   pages: 0,
   rawWords: 0,
+  ocrWords: 0,
   anomalies: 0,
 })
 
 const tabs = [
   { label: 'Detection Engine', slot: 'logs', icon: 'i-lucide-shield-alert' },
-  { label: 'Raw String Dump', slot: 'raw', icon: 'i-lucide-file-code' }
+  { label: 'Visual Diff (OCR vs Raw)', slot: 'diff', icon: 'i-lucide-file-diff' },
+  { label: 'PDF Viewer', slot: 'viewer', icon: 'i-lucide-file-image' }
 ]
 
 const verdict = computed(() => {
-  if (riskScore.value === 0) return { text: 'Clean', subtext: 'No anomalies detected.', color: 'success' }
-  if (riskScore.value < 40) return { text: 'Suspicious', subtext: 'Some unusual structures found.', color: 'warning' }
-  return { text: 'Malicious', subtext: 'Definite Prompt Injection / Honeypot detected.[cite: 1]', color: 'error' }
+  if (riskScore.value === 0) return { text: 'Clean', subtext: 'OCR and Programmatic text align well.', color: 'success' }
+  if (riskScore.value < 40) return { text: 'Suspicious', subtext: 'Unusual programmatic structures found.', color: 'warning' }
+  return { text: 'Malicious', subtext: 'Definite Prompt Injection / Honeypot detected.', color: 'error' }
 })
 
 const hasScanned = computed(() => logs.value.length > 0)
@@ -64,89 +79,166 @@ function onDrop(event: DragEvent) {
   }
 }
 
+function updateProgress(percent: number, title: string) {
+  progress.value = percent
+  progressText.value = `${Math.round(percent)}%`
+  progressTitle.value = title
+}
+
 async function startAnalysis(file: File) {
   if (file.type !== 'application/pdf') {
     addLog('Invalid file type. Please upload a PDF.', 'high')
     return
   }
 
+  // Ensure scripts are loaded
+  if (!(window as any).pdfjsLib || !(window as any).Tesseract || !(window as any).diff_match_patch) {
+    alert("Analysis engines are still downloading. Please wait a few seconds and try again.")
+    return
+  }
+
+  const pdfjsLib = (window as any).pdfjsLib
+  const Tesseract = (window as any).Tesseract
+  const DiffMatchPatch = (window as any).diff_match_patch
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js'
+  const dmp = new DiffMatchPatch()
+
+  // Reset State[cite: 1]
   isScanning.value = true
-  progress.value = 5
-  progressText.value = 'Initializing native scanning engine...[cite: 1]'
   logs.value = []
+  diffResults.value = []
   riskScore.value = 0
-  stats.value = { pages: 0, rawWords: 0, anomalies: 0 }
-  rawExtractedText.value = ''
+  stats.value = { pages: 0, rawWords: 0, ocrWords: 0, anomalies: 0 }
+  if (viewerContainerRef.value) viewerContainerRef.value.innerHTML = ''
+  
+  let globalRawText = ""
+  let globalOcrText = ""
 
   try {
+    updateProgress(5, "Initializing Tesseract OCR Worker...[cite: 1]")
+    const worker = await Tesseract.createWorker('eng')
+
+    updateProgress(15, "Parsing PDF Structure...[cite: 1]")
     const arrayBuffer = await file.arrayBuffer()
-    progress.value = 25
-    progressText.value = 'Parsing PDF Binary Structure...'
-
-    // Decode binary as raw string to find heuristic markers without external libs
-    const decoder = new TextDecoder('latin1')
-    const rawString = decoder.decode(arrayBuffer)
-    rawExtractedText.value = rawString.substring(0, 15000) + (rawString.length > 15000 ? '\n...[TRUNCATED]' : '')
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
     
-    stats.value.rawWords = rawString.split(/\s+/).length
-    
-    // Estimate pages based on PDF structural tags
-    const pageMatches = rawString.match(/\/Type\s*\/Page\b/g)
-    stats.value.pages = pageMatches ? pageMatches.length : 1
+    stats.value.pages = pdf.numPages
 
-    progress.value = 50
-    progressText.value = 'Running Heuristic Checks...[cite: 1]'
-
-    // 1. JavaScript / Active Content Check
-    if (rawString.includes('/JS') || rawString.includes('/JavaScript')) {
-      riskScore.value += 40
-      addLog('Active Content: JavaScript embedded in PDF detected.', 'high', '/JS or /JavaScript dictionary found.')
+    // Step 1: Metadata Extraction[cite: 1]
+    const metadata = await pdf.getMetadata()
+    const producer = metadata?.info?.Producer || ''
+    const creator = metadata?.info?.Creator || ''
+    if (/(pypdf|pdf-lib|ghostscript)/i.test(producer) || /(pypdf|pdf-lib|ghostscript)/i.test(creator)) {
+      riskScore.value += 10
+      addLog(`Programmatic PDF generation detected.[cite: 1]`, 'low', `Producer: ${producer}`)
     }
 
-    // 2. Auto-execution (OpenAction)
-    if (rawString.includes('/OpenAction') || rawString.includes('/AA')) {
-      riskScore.value += 30
-      addLog('Auto-execution: OpenAction or Additional Actions found.', 'high', '/OpenAction flag triggers actions on load.')
-    }
+    // Step 2: Page by Page Analysis[cite: 1]
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      let pageProgressBase = 15 + ((pageNum - 1) / pdf.numPages) * 70
+      updateProgress(pageProgressBase, `Analyzing Page ${pageNum}/${pdf.numPages}...[cite: 1]`)
 
-    // 3. Invisible Text Render Mode (Tr 3)
-    if (rawString.includes('3 Tr') || rawString.includes('3 Tz')) {
-      riskScore.value += 30
-      addLog('Invisible Text: Invisible render mode (Tr=3) detected.[cite: 1]', 'high', '3 Tr')
-    }
+      const page = await pdf.getPage(pageNum)
+      const viewport = page.getViewport({ scale: 1.5 })
 
-    // 4. Zero-Width Characters
-    if (/[\u200B-\u200D\uFEFF\u202E]/.test(rawString)) {
-      riskScore.value += 40
-      addLog('Obfuscation: Invisible Zero-Width characters detected.[cite: 1]', 'high', 'Contains unicode zero-width spaces/joiners.')
-    }
+      // Render to Canvas[cite: 1]
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      if (!ctx) continue
+      
+      canvas.width = viewport.width
+      canvas.height = viewport.height
+      canvas.className = "max-w-full h-auto mb-4 border border-(--ui-border)"
+      await page.render({ canvasContext: ctx, viewport: viewport }).promise
+      
+      if (viewerContainerRef.value) viewerContainerRef.value.appendChild(canvas)
 
-    // 5. Common Prompt Injection Phrases in Raw Text
-    const promptInjectionPhrases = ['ignore previous', 'system prompt', 'you are now', 'bypass']
-    const lowerRaw = rawString.toLowerCase()
-    for (const phrase of promptInjectionPhrases) {
-      if (lowerRaw.includes(phrase)) {
-        riskScore.value += 50
-        addLog(`Prompt Injection: Suspicious instruction phrase found.`, 'high', `Found: "${phrase}"`)
+      // Programmatic Text Extraction & Heuristics[cite: 1]
+      const textContent = await page.getTextContent()
+      const opList = await page.getOperatorList()
+      let pageRawText = ""
+
+      textContent.items.forEach((item: any) => {
+        const str = item.str
+        if (!str.trim()) return
+        pageRawText += str + " "
+
+        // Font Size Check[cite: 1]
+        const fontSize = Math.hypot(item.transform[0], item.transform[1])
+        if (fontSize > 0 && fontSize < 1) {
+          riskScore.value += 30
+          addLog(`Page ${pageNum}: Micro-text (< 1pt) detected.[cite: 1]`, 'high', `Text: "${str}"`)
+        }
+
+        // Zero-Width Check[cite: 1]
+        if (/[\u200B-\u200D\uFEFF\u202E]/.test(str)) {
+          riskScore.value += 40
+          addLog(`Page ${pageNum}: Invisible Zero-Width characters detected.[cite: 1]`, 'high', str.replace(/[\u200B-\u200D\uFEFF\u202E]/g, '[ZERO-WIDTH]'))
+        }
+
+        // Out of Bounds Check[cite: 1]
+        const x = item.transform[4]
+        const y = item.transform[5]
+        if (x < -100 || x > viewport.width + 100 || y < -100 || y > viewport.height + 100) {
+          riskScore.value += 20
+          addLog(`Page ${pageNum}: Out-of-bounds text detected.[cite: 1]`, 'medium', `Text: "${str}"`)
+        }
+      })
+      globalRawText += pageRawText + "\n"
+
+      // Operator Check (Tr=3)[cite: 1]
+      for (let i = 0; i < opList.fnArray.length; i++) {
+        if (opList.fnArray[i] === pdfjsLib.OPS.setTextRenderingMode && opList.argsArray[i][0] === 3) {
+          riskScore.value += 30
+          addLog(`Page ${pageNum}: Invisible render mode (Tr=3) detected.[cite: 1]`, 'high')
+          break
+        }
       }
+
+      // OCR Visual Extraction[cite: 1]
+      updateProgress(pageProgressBase + (35 / pdf.numPages), `Running OCR on Page ${pageNum}...[cite: 1]`)
+      const ocrResult = await worker.recognize(canvas)
+      globalOcrText += ocrResult.data.text + "\n"
     }
 
-    progress.value = 100
-    progressText.value = 'Analysis Complete.'
+    // Step 3: Diff Engine[cite: 1]
+    updateProgress(90, "Diffing Visual vs Programmatic Text...[cite: 1]")
+    const cleanRaw = globalRawText.replace(/\s+/g, ' ').trim()
+    const cleanOcr = globalOcrText.replace(/\s+/g, ' ').trim()
 
-    if (riskScore.value === 0) {
-      addLog('Heuristic scan clear. No hidden textual overlays or malicious objects detected.[cite: 1]', 'info')
+    stats.value.rawWords = cleanRaw.split(/\s+/).length
+    stats.value.ocrWords = cleanOcr.split(/\s+/).length
+
+    const diffs = dmp.diff_main(cleanOcr, cleanRaw)
+    dmp.diff_cleanupSemantic(diffs)
+    diffResults.value = diffs
+
+    let hasSubstantialDiff = false
+    diffs.forEach((part: [number, string]) => {
+      // 1 signifies insertion in Raw (present in code, hidden from OCR)[cite: 1]
+      if (part[0] === 1 && part[1].length > 15) { 
+        hasSubstantialDiff = true
+      }
+    })
+
+    if (hasSubstantialDiff) {
+      riskScore.value += 50
+      addLog(`Substantial Text Mismatch![cite: 1]`, 'high', `The programmatic text contains significant instructions visually hidden from the human reader. Check the 'Visual Diff' tab.[cite: 1]`)
+    } else {
+      addLog(`OCR and Programmatic text align well. No hidden textual overlays detected.[cite: 1]`, 'info')
     }
 
-    // Cap score at 100
+    updateProgress(100, "Analysis Complete.[cite: 1]")
+    await worker.terminate()
     riskScore.value = Math.min(riskScore.value, 100)
 
   } catch (error) {
-    addLog(`System Error: ${(error as Error).message}[cite: 1]`, 'high')
+    addLog(`System Error: ${(error as Error).message}`, 'high')
   } finally {
     setTimeout(() => {
       isScanning.value = false
-    }, 1000)
+    }, 1500)
   }
 }
 </script>
@@ -156,13 +248,13 @@ async function startAnalysis(file: File) {
     <UContainer class="py-8 max-w-7xl">
       <div class="mb-6">
         <h1 class="text-3xl font-bold tracking-tight mb-2">Zero-Trust PDF Firewall</h1>
-        <p class="text-(--ui-text-muted)">100% Client-Side Processing. No external servers.[cite: 1]</p>
+        <p class="text-(--ui-text-muted)">Client-side Rasterization, OCR, and Heuristic Diffing Engine.[cite: 1]</p>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
         
         <!-- Left Column: Input and Status -->
-        <div class="space-y-6">
+        <div class="xl:col-span-1 space-y-6">
           <UCard v-if="!isScanning && !hasScanned">
             <div 
               class="border-2 border-dashed border-(--ui-border) rounded-xl p-8 text-center cursor-pointer bg-(--ui-bg-elevated) hover:opacity-80 transition-opacity"
@@ -171,7 +263,7 @@ async function startAnalysis(file: File) {
               @drop.prevent="onDrop"
             >
               <UIcon name="i-lucide-file-up" class="mx-auto size-10 text-(--ui-text-muted) mb-3" />
-              <p class="text-sm font-medium mb-1">Select PDF Document[cite: 1]</p>
+              <p class="text-sm font-medium mb-1">Select PDF Document</p>
               <p class="text-xs text-(--ui-text-muted)">No file size limit. Processing is local.[cite: 1]</p>
               <input ref="fileInputRef" type="file" class="hidden" accept="application/pdf" @change="onFileChange">
             </div>
@@ -180,8 +272,8 @@ async function startAnalysis(file: File) {
           <UCard v-if="isScanning">
             <div class="space-y-4">
               <div class="flex justify-between items-center text-sm font-semibold">
+                <span class="truncate pr-4">{{ progressTitle }}</span>
                 <span>{{ progressText }}</span>
-                <span>{{ Math.round(progress) }}%</span>
               </div>
               <UProgress :value="progress" />
             </div>
@@ -191,7 +283,7 @@ async function startAnalysis(file: File) {
             <template #header>
               <div class="flex items-center justify-between">
                 <h2 class="font-semibold text-lg">Analysis Verdict[cite: 1]</h2>
-                <UButton @click="logs = []; rawExtractedText = ''" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" size="sm">
+                <UButton @click="logs = []; diffResults = []; hasScanned = false" color="neutral" variant="ghost" icon="i-lucide-refresh-cw" size="sm">
                   Reset
                 </UButton>
               </div>
@@ -211,20 +303,30 @@ async function startAnalysis(file: File) {
 
             <div class="grid grid-cols-2 gap-3 text-sm">
               <div class="bg-(--ui-bg-elevated) p-3 rounded-lg border border-(--ui-border)">
-                <span class="text-(--ui-text-muted) block text-xs">Pages Found</span>
+                <span class="text-(--ui-text-muted) block text-xs">Pages</span>
                 <span class="font-bold">{{ stats.pages }}</span>
               </div>
               <div class="bg-(--ui-bg-elevated) p-3 rounded-lg border border-(--ui-border)">
                 <span class="text-(--ui-text-muted) block text-xs">Anomalies</span>
-                <span class="font-bold text-red-500">{{ stats.anomalies }}[cite: 1]</span>
+                <span class="font-bold text-[var(--ui-error)]">{{ stats.anomalies }}</span>
+              </div>
+              <div class="bg-(--ui-bg-elevated) p-3 rounded-lg border border-(--ui-border)">
+                <span class="text-(--ui-text-muted) block text-xs">OCR Words</span>
+                <span class="font-bold">{{ stats.ocrWords }}</span>
+              </div>
+              <div class="bg-(--ui-bg-elevated) p-3 rounded-lg border border-(--ui-border)">
+                <span class="text-(--ui-text-muted) block text-xs">Raw Words</span>
+                <span class="font-bold">{{ stats.rawWords }}</span>
               </div>
             </div>
           </UCard>
         </div>
 
-        <!-- Right Column: Tabs and Logs -->
-        <UCard class="lg:col-span-2 flex flex-col h-[700px]">
+        <!-- Right Column: Tabs (Logs, Diff, Viewer) -->
+        <UCard class="xl:col-span-2 flex flex-col h-[800px]">
           <UTabs :items="tabs" class="flex-1 flex flex-col overflow-hidden">
+            
+            <!-- Detection Engine Logs[cite: 1] -->
             <template #logs>
               <div class="h-full overflow-y-auto space-y-3 p-4">
                 <div v-if="!hasScanned" class="h-full flex items-center justify-center text-(--ui-text-muted) text-sm italic">
@@ -250,23 +352,45 @@ async function startAnalysis(file: File) {
               </div>
             </template>
 
-            <template #raw>
-              <div class="h-full flex flex-col p-4">
-                <UAlert color="info" variant="subtle" icon="i-lucide-file-binary" class="mb-4">
+            <!-- Visual Diff Tab[cite: 1] -->
+            <template #diff>
+              <div class="h-full flex flex-col p-4 overflow-hidden">
+                <UAlert color="info" variant="subtle" icon="i-lucide-info" class="mb-4 shrink-0">
                   <template #title>
-                    <strong>How this works:</strong> We scan the raw binary string for heuristic indicators of malicious intent or hidden elements.
+                    <strong>How this works:</strong> We compare the text an AI sees (Raw Extract) against the text a human sees (OCR). Text enclosed in dashed boxes is hidden in the PDF but will be read by an LLM (Prompt Injection).[cite: 1]
                   </template>
                 </UAlert>
                 
-                <UTextarea
-                  :model-value="rawExtractedText"
-                  readonly
-                  class="font-mono text-sm flex-1"
-                  placeholder="Raw binary dump will appear here..."
-                  :rows="20"
-                />
+                <div class="flex-1 overflow-y-auto bg-(--ui-bg-elevated) p-4 border border-(--ui-border) rounded-lg font-mono text-sm whitespace-pre-wrap leading-relaxed">
+                  <span v-if="diffResults.length === 0" class="text-(--ui-text-muted)">No diff generated yet.[cite: 1]</span>
+                  <template v-else v-for="(part, index) in diffResults" :key="index">
+                    <span 
+                      v-if="part[0] === 1 && part[1].length > 15" 
+                      class="bg-red-500/10 text-red-600 font-bold border border-red-500 border-dashed px-1 mx-1 rounded"
+                      title="This text is hidden visually but readable by AI.[cite: 1]"
+                    >
+                      {{ part[1] }}
+                    </span>
+                    <span v-else-if="part[0] === 0" class="text-(--ui-text-muted)">
+                      {{ part[1] }}
+                    </span>
+                  </template>
+                </div>
               </div>
             </template>
+
+            <!-- PDF Viewer Canvas Dump[cite: 1] -->
+            <template #viewer>
+              <div class="h-full overflow-y-auto p-4 bg-(--ui-bg-elevated) rounded-lg border border-(--ui-border)">
+                <div v-if="!hasScanned" class="h-full flex items-center justify-center text-(--ui-text-muted) text-sm italic">
+                  Canvas will render here...
+                </div>
+                <div ref="viewerContainerRef" class="flex flex-col items-center">
+                  <!-- dynamically appended by pdf.js renderer -->
+                </div>
+              </div>
+            </template>
+
           </UTabs>
         </UCard>
 
